@@ -10,6 +10,7 @@ npm test                                     # vitest run (all tests)
 npx vitest run src/engine/session.test.ts    # single file
 npx vitest run -t "freezes the countdown"    # single test by name
 npm run build                                # tsc --noEmit + vite build → dist/
+npx --yes @action-validator/cli .github/workflows/azure-static-web-apps.yml   # validate the workflow
 ```
 
 No linter is configured; `tsc --noEmit` (strict, `noUnusedLocals/Parameters`) is the check.
@@ -45,6 +46,10 @@ There is no backend. Spotify sign-in uses Authorization Code + PKCE straight fro
   `engine/sounds.ts` has cues synthesized with Web Audio, plus an optional uploaded file stored as a data URL (limit 1.5 MB).
 - `spotify/useWebPlayer.ts` loads the Web Playback SDK once, so the tab becomes a Spotify Connect device.
   `DevicePicker` lists other devices.
+- `spotify/platform.ts` `IS_MOBILE`: phones can't run the Web Playback SDK, so the SDK isn't loaded, "This browser" is hidden,
+  and `DevicePicker` auto-picks the active/first Connect device (and re-scans when the page becomes visible).
+- Phones freeze background pages. A tick arriving more than `OVERRUN_MS` past the deadline pauses the session with a message
+  instead of advancing; `resume()` with 0 remaining goes to the next song.
 - Routing: there is no router. `App.tsx` checks for `pathname === '/callback'`. SWA's `navigationFallback`
   (`public/staticwebapp.config.json`) serves `index.html` for it.
 
@@ -77,3 +82,14 @@ the redirect goes to the current origin (normal local dev). Changes to the allow
 The workflow needs the secret `AZURE_STATIC_WEB_APPS_API_TOKEN` and the variables `VITE_SPOTIFY_CLIENT_ID`,
 `VITE_AUTH_REDIRECT_ORIGIN`, `VITE_PREVIEW_ORIGIN` and `VITE_SWA_DEFAULT_HOST`. Production is SWA `spotify-power-hour-swa` (resource group `spotify-power-hour`,
 default host `gentle-sky-0b9139a10.2.azurestaticapps.net`, custom domain `powerhour.bleemus.dev`).
+
+- `VITE_*` values are baked in at build time. After changing a repo variable, redeploy (`gh run rerun <id>`) for it to take effect.
+- Verify what's live: fetch the page, find `/assets/index-*.js`, and grep it for the expected origin or client ID.
+- `az staticwebapp environment list -n spotify-power-hour-swa -g spotify-power-hour` shows the slots (expect only `default` and `preview`).
+- PR runs can take 10–30s to show up in `gh run list`; the run status can also report in-progress after both jobs finish.
+- Spotify redirect URIs registered: `https://powerhour.bleemus.dev/callback`, the preview slot's `/callback`, `http://127.0.0.1:5173/callback`.
+- Changes go through a PR to the shared preview slot, and the most recently pushed PR overwrites it.
+
+## Testing UI
+Signed-in UI can't be reached without a Spotify login. To check layout, render sample markup with `dist/assets/*.css` in a
+390px-wide iframe served from the scratchpad, and inspect it in Chrome.
