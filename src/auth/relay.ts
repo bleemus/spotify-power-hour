@@ -28,12 +28,25 @@ export function decodeState(raw: string | null): AuthState | null {
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+export interface RelayConfig {
+  /** Origin whose /callback is registered with Spotify (production; may be a custom domain). */
+  authOrigin: string;
+  /** Local dev server origin. */
+  devOrigin: string;
+  /**
+   * The SWA default hostname (e.g. gentle-sky-0b9139a10.2.azurestaticapps.net). Preview
+   * environments are named after it. Defaults to the auth origin's host when that is an
+   * azurestaticapps.net host.
+   */
+  swaHost?: string;
+}
+
 /**
  * Whether the auth origin may forward an authorization code to `origin`.
- * Allowed: the auth origin itself, the local dev server, and this app's own
- * Azure Static Web Apps preview environments (<name>-<pr>.<region>[.<n>].azurestaticapps.net).
+ * Allowed: the auth origin itself, the local dev server, the SWA default host, and this
+ * app's own preview environments (<name>-<pr>.<region>[.<n>].azurestaticapps.net).
  */
-export function isAllowedReturnOrigin(origin: string, authOrigin: string, devOrigin: string): boolean {
+export function isAllowedReturnOrigin(origin: string, config: RelayConfig): boolean {
   let url: URL;
   try {
     url = new URL(origin);
@@ -41,16 +54,19 @@ export function isAllowedReturnOrigin(origin: string, authOrigin: string, devOri
     return false;
   }
   if (url.origin !== origin) return false; // no paths, credentials, trailing junk
-  if (origin === authOrigin || origin === devOrigin) return true;
+  if (origin === config.authOrigin || origin === config.devOrigin) return true;
 
-  let auth: URL;
-  try {
-    auth = new URL(authOrigin);
-  } catch {
-    return false;
+  let swaHost = config.swaHost?.trim().toLowerCase();
+  if (!swaHost) {
+    try {
+      swaHost = new URL(config.authOrigin).hostname;
+    } catch {
+      return false;
+    }
   }
-  const m = /^([a-z0-9-]+)\.(?:\d+\.)?azurestaticapps\.net$/.exec(auth.hostname);
+  const m = /^([a-z0-9-]+)\.(?:\d+\.)?azurestaticapps\.net$/.exec(swaHost);
   if (!m || url.protocol !== 'https:' || url.port !== '') return false;
+  if (url.hostname === swaHost) return true;
   const preview = new RegExp(`^${escapeRe(m[1])}-\\d+\\.[a-z0-9]+(?:\\.\\d+)?\\.azurestaticapps\\.net$`);
   return preview.test(url.hostname);
 }

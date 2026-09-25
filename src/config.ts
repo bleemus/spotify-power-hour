@@ -9,6 +9,9 @@ export const REDIRECT_URI = `${AUTH_ORIGIN}/callback`;
 
 export const DEV_ORIGIN = 'http://127.0.0.1:5173';
 
+/** SWA default hostname; only needed when AUTH_ORIGIN is a custom domain (see auth/relay.ts). */
+export const SWA_HOST: string = import.meta.env.VITE_SWA_DEFAULT_HOST ?? '';
+
 export const SCOPES = [
   'streaming',
   'user-read-email',

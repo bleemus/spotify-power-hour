@@ -52,7 +52,9 @@ There is no backend. Spotify sign-in uses Authorization Code + PKCE straight fro
 Each SWA preview environment has its own hostname, and Spotify does not allow wildcard redirect URIs. So every environment
 uses `VITE_AUTH_REDIRECT_ORIGIN` (production) + `/callback` as `redirect_uri`, and puts `{o: its origin, n: nonce}` in `state`.
 Production's `/callback` forwards the code to `o`, but only if `isAllowedReturnOrigin` passes. That function allows the
-auth origin, `http://127.0.0.1:5173`, and `<prod-subdomain>-<n>.<region>[.<partition>].azurestaticapps.net`.
+auth origin, `http://127.0.0.1:5173`, the SWA default host, and `<swa-subdomain>-<n>.<region>[.<partition>].azurestaticapps.net`.
+The SWA host comes from `VITE_SWA_DEFAULT_HOST`, or from the auth origin's host when that is an azurestaticapps.net host.
+It must be set when the auth origin is a custom domain.
 The originating environment then exchanges the code with its own PKCE verifier. When `VITE_AUTH_REDIRECT_ORIGIN` is unset,
 the redirect goes to the current origin (normal local dev). Changes to the allowlist need matching cases in `relay.test.ts`.
 
@@ -69,5 +71,6 @@ the redirect goes to the current origin (normal local dev). Changes to the allow
 - PR closed: `action: close` deletes that preview environment.
 - Push to `main`: deploys to production.
 
-The workflow needs the secret `AZURE_STATIC_WEB_APPS_API_TOKEN` and the variables `VITE_SPOTIFY_CLIENT_ID` and
-`VITE_AUTH_REDIRECT_ORIGIN`. The Free tier allows 3 preview environments at once.
+The workflow needs the secret `AZURE_STATIC_WEB_APPS_API_TOKEN` and the variables `VITE_SPOTIFY_CLIENT_ID`,
+`VITE_AUTH_REDIRECT_ORIGIN` and `VITE_SWA_DEFAULT_HOST`. Production is SWA `spotify-power-hour-swa` (resource group `spotify-power-hour`,
+default host `gentle-sky-0b9139a10.2.azurestaticapps.net`, custom domain `powerhour.bleemus.dev`). The Free tier allows 3 preview environments at once.
