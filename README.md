@@ -37,28 +37,32 @@ npm test
 
 | Event | What happens |
 | --- | --- |
-| PR opened / updated against `main` | test → build → deploy to that PR's **own preview environment** (URL is commented on the PR) |
-| PR closed or merged | that PR's preview environment is **deleted** |
+| PR opened / updated against `main` | test → build → deploy to the single long-lived **`preview` environment** |
 | push to `main` (i.e. merge) | test → build → deploy to **production** |
 
-The Free tier allows 3 preview environments at once.
+All PRs share one preview slot with a stable address
+(`https://gentle-sky-0b9139a10-preview.centralus.2.azurestaticapps.net`). The most recently pushed PR owns it,
+and it is never deleted.
 
 GitHub settings you need:
 - Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`: the SWA deployment token.
 - Variable `VITE_SPOTIFY_CLIENT_ID`: the Spotify Client ID.
 - Variable `VITE_AUTH_REDIRECT_ORIGIN`: the production origin whose `/callback` is registered with Spotify, either
   the custom domain (e.g. `https://powerhour.bleemus.dev`) or the `*.azurestaticapps.net` default host.
+- Variable `VITE_PREVIEW_ORIGIN`: the preview slot's origin. PR builds use it as their auth origin.
 - Variable `VITE_SWA_DEFAULT_HOST`: the SWA default hostname, e.g. `gentle-sky-0b9139a10.2.azurestaticapps.net`.
   PR preview hosts are named after it, so the relay needs it whenever the auth origin is a custom domain.
 
 Redirect URIs to register in the Spotify dashboard:
 - `http://127.0.0.1:5173/callback` for local dev
-- `https://<VITE_AUTH_REDIRECT_ORIGIN host>/callback`. Previews need nothing extra.
+- `https://<VITE_AUTH_REDIRECT_ORIGIN host>/callback` for production
+- `https://<VITE_PREVIEW_ORIGIN host>/callback` for the preview slot
 
-### How PR previews sign in
+### Sign-in relay
 
-Each preview has its own hostname, and Spotify doesn't allow wildcard redirect URIs. So every environment uses
-the **production** `/callback` as its redirect URI and puts its own origin in the OAuth `state`. Production's
+The preview slot has a stable address and is registered with Spotify directly. The relay remains for any other
+origin, such as the SWA default host or a local build pointed at production. Spotify doesn't allow wildcard
+redirect URIs, so such an origin uses the **production** `/callback` as its redirect URI and puts its own origin in the OAuth `state`. Production's
 `/callback` forwards the code back to that origin. It only does this if the origin is this app's own preview
 host pattern (`<swa-name>-<pr>.<region>[.<n>].azurestaticapps.net`), the SWA default host, or the local dev server. The preview then finishes
 the PKCE exchange with the verifier it kept. You only register one production redirect URI in Spotify.

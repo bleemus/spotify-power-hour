@@ -74,18 +74,25 @@ export function useSession(web: WebPlayer) {
     [web.player, controller],
   );
 
-  // Keep the screen awake while a session is running.
+  // Keep the screen awake while a session is running. Browsers drop the lock whenever
+  // the page is hidden, so take it again each time the page comes back.
   const active = ['starting', 'playing', 'paused', 'cue'].includes(view.status);
   useEffect(() => {
     if (!active || !('wakeLock' in navigator)) return;
     let lock: WakeLockSentinel | null = null;
-    let released = false;
-    navigator.wakeLock.request('screen').then(
-      (l) => (released ? void l.release() : (lock = l)),
-      () => {},
-    );
+    let done = false;
+    const acquire = () => {
+      if (done || document.visibilityState !== 'visible' || (lock && !lock.released)) return;
+      navigator.wakeLock.request('screen').then(
+        (l) => (done ? void l.release() : (lock = l)),
+        () => {},
+      );
+    };
+    acquire();
+    document.addEventListener('visibilitychange', acquire);
     return () => {
-      released = true;
+      done = true;
+      document.removeEventListener('visibilitychange', acquire);
       void lock?.release();
     };
   }, [active]);

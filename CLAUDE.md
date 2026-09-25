@@ -48,8 +48,9 @@ There is no backend. Spotify sign-in uses Authorization Code + PKCE straight fro
 - Routing: there is no router. `App.tsx` checks for `pathname === '/callback'`. SWA's `navigationFallback`
   (`public/staticwebapp.config.json`) serves `index.html` for it.
 
-### Auth relay for PR previews (`auth/relay.ts`, `auth/pkce.ts`)
-Each SWA preview environment has its own hostname, and Spotify does not allow wildcard redirect URIs. So every environment
+### Auth relay (`auth/relay.ts`, `auth/pkce.ts`)
+PR builds use the fixed `preview` environment and sign in on their own origin (`VITE_PREVIEW_ORIGIN`, registered with Spotify).
+Any other origin that isn't registered, such as the SWA default host,
 uses `VITE_AUTH_REDIRECT_ORIGIN` (production) + `/callback` as `redirect_uri`, and puts `{o: its origin, n: nonce}` in `state`.
 Production's `/callback` forwards the code to `o`, but only if `isAllowedReturnOrigin` passes. That function allows the
 auth origin, `http://127.0.0.1:5173`, the SWA default host, and `<swa-subdomain>-<n>.<region>[.<partition>].azurestaticapps.net`.
@@ -67,10 +68,12 @@ the redirect goes to the current origin (normal local dev). Changes to the allow
 
 ## Deployment
 `.github/workflows/azure-static-web-apps.yml`:
-- PR opened or updated: test, build, and deploy the prebuilt `dist/` to that PR's SWA preview environment.
-- PR closed: `action: close` deletes that preview environment.
+- PR opened or updated: test, build, and deploy the prebuilt `dist/` to the single named environment `preview`
+  via the SWA CLI (`swa deploy --env preview`). The deploy action can't be used for this: on `pull_request` events it
+  ignores `deployment_environment` and always creates a numbered per-PR environment. The most recently pushed PR
+  owns the slot, and it is never deleted.
 - Push to `main`: deploys to production.
 
 The workflow needs the secret `AZURE_STATIC_WEB_APPS_API_TOKEN` and the variables `VITE_SPOTIFY_CLIENT_ID`,
-`VITE_AUTH_REDIRECT_ORIGIN` and `VITE_SWA_DEFAULT_HOST`. Production is SWA `spotify-power-hour-swa` (resource group `spotify-power-hour`,
-default host `gentle-sky-0b9139a10.2.azurestaticapps.net`, custom domain `powerhour.bleemus.dev`). The Free tier allows 3 preview environments at once.
+`VITE_AUTH_REDIRECT_ORIGIN`, `VITE_PREVIEW_ORIGIN` and `VITE_SWA_DEFAULT_HOST`. Production is SWA `spotify-power-hour-swa` (resource group `spotify-power-hour`,
+default host `gentle-sky-0b9139a10.2.azurestaticapps.net`, custom domain `powerhour.bleemus.dev`).

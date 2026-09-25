@@ -1,26 +1,26 @@
 name: Deploy to Azure Static Web Apps
 
-# PR opened/updated  -> test, build, deploy to that PR's own preview environment
-# PR closed/merged   -> delete that PR's preview environment
-# push to main       -> test, build, deploy to production (a merged PR lands here)
+# PR opened/updated -> test, build, deploy to the single long-lived "preview" environment
+#                      (the most recently pushed PR owns it; it is never deleted)
+# push to main      -> test, build, deploy to production (a merged PR lands here)
 on:
   push:
     branches: [main]
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened]
     branches: [main]
 
 permissions:
   contents: read
   pull-requests: write # the deploy action comments the preview URL on the PR
 
+# One queue for all PRs (they share the preview slot) and one for main.
 concurrency:
-  group: swa-${{ github.event.pull_request.number || github.ref }}
+  group: swa-${{ github.event_name == 'pull_request' && 'preview' || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    if: github.event_name == 'push' || github.event.action != 'closed'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -36,8 +36,9 @@ jobs:
       - run: npm run build
         env:
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.VITE_SPOTIFY_CLIENT_ID }}
-          # Production origin whose /callback is registered with Spotify; previews sign in through it.
-          VITE_AUTH_REDIRECT_ORIGIN: ${{ vars.VITE_AUTH_REDIRECT_ORIGIN }}
+          # Origin whose /callback is registered with Spotify. The preview slot has a stable
+          # hostname, so it is registered directly and signs in on its own origin.
+          VITE_AUTH_REDIRECT_ORIGIN: ${{ github.event_name == 'pull_request' && vars.VITE_PREVIEW_ORIGIN || vars.VITE_AUTH_REDIRECT_ORIGIN }}
           # SWA default hostname; preview hosts are derived from it when the auth origin is a custom domain.
           VITE_SWA_DEFAULT_HOST: ${{ vars.VITE_SWA_DEFAULT_HOST }}
 
@@ -56,9 +57,9 @@ jobs:
           name: site
           path: dist
 
-      # On pull_request events this deploys to a staging environment named after the PR;
-      # on push to main it deploys to production.
-      - uses: Azure/static-web-apps-deploy@v1
+      - name: Deploy to production
+        if: github.event_name == 'push'
+        uses: Azure/static-web-apps-deploy@v1
         with:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
@@ -67,13 +68,19 @@ jobs:
           output_location: ''
           skip_app_build: true
 
-  close_preview:
-    if: github.event_name == 'pull_request' && github.event.action == 'closed'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Delete this PR's preview environment
-        uses: Azure/static-web-apps-deploy@v1
+      # All PRs share the named environment "preview" (<name>-preview.<region>.<n>.azurestaticapps.net).
+      # Uses the SWA CLI because the deploy action ignores deployment_environment on
+      # pull_request events and always creates a numbered per-PR environment.
+      - uses: actions/setup-node@v5
+        if: github.event_name == 'pull_request'
         with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          action: close
-          app_location: ''
+          node-version: 22
+
+      - name: Deploy to the preview environment
+        if: github.event_name == 'pull_request'
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          PREVIEW_ORIGIN: ${{ vars.VITE_PREVIEW_ORIGIN }}
+        run: |
+          npx --yes @azure/static-web-apps-cli@2.0.10 deploy ./dist --env preview --no-use-keychain
+          echo "Preview: $PREVIEW_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
