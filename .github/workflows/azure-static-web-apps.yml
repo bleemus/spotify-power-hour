@@ -69,16 +69,18 @@ jobs:
           skip_app_build: true
 
       # All PRs share the named environment "preview" (<name>-preview.<region>.<n>.azurestaticapps.net).
-      # deployment_environment is a documented input missing from the action's manifest,
-      # so GitHub warns about it; the action still reads it.
+      # Uses the SWA CLI because the deploy action ignores deployment_environment on
+      # pull_request events and always creates a numbered per-PR environment.
+      - uses: actions/setup-node@v5
+        if: github.event_name == 'pull_request'
+        with:
+          node-version: 22
+
       - name: Deploy to the preview environment
         if: github.event_name == 'pull_request'
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          app_location: dist
-          output_location: ''
-          skip_app_build: true
-          deployment_environment: preview
+        env:
+          SWA_CLI_DEPLOYMENT_TOKEN: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
+          PREVIEW_ORIGIN: ${{ vars.VITE_PREVIEW_ORIGIN }}
+        run: |
+          npx --yes @azure/static-web-apps-cli@2.0.10 deploy ./dist --env preview --no-use-keychain
+          echo "Preview: $PREVIEW_ORIGIN" >> "$GITHUB_STEP_SUMMARY"
