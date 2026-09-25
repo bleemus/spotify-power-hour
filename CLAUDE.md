@@ -69,7 +69,9 @@ the redirect goes to the current origin (normal local dev). Changes to the allow
 ## Deployment
 `.github/workflows/azure-static-web-apps.yml`:
 - PR opened or updated: test, build, and deploy the prebuilt `dist/` to the single named environment `preview`
-  (`deployment_environment: preview`). The most recently pushed PR owns it, and it is never deleted.
+  via the SWA CLI (`swa deploy --env preview`). The deploy action can't be used for this: on `pull_request` events it
+  ignores `deployment_environment` and always creates a numbered per-PR environment. The most recently pushed PR
+  owns the slot, and it is never deleted.
 - Push to `main`: deploys to production.
 
 The workflow needs the secret `AZURE_STATIC_WEB_APPS_API_TOKEN` and the variables `VITE_SPOTIFY_CLIENT_ID`,
