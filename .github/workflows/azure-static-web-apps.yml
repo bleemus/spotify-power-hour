@@ -21,11 +21,11 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -42,7 +42,7 @@ jobs:
           # SWA default hostname; preview hosts are derived from it when the auth origin is a custom domain.
           VITE_SWA_DEFAULT_HOST: ${{ vars.VITE_SWA_DEFAULT_HOST }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: site
           path: dist
@@ -50,9 +50,9 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v8
         with:
           name: site
           path: dist
@@ -71,7 +71,7 @@ jobs:
       # All PRs share the named environment "preview" (<name>-preview.<region>.<n>.azurestaticapps.net).
       # Uses the SWA CLI because the deploy action ignores deployment_environment on
       # pull_request events and always creates a numbered per-PR environment.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: github.event_name == 'pull_request'
         with:
           node-version: 22
