@@ -46,14 +46,20 @@ The Free tier allows 3 preview environments at once.
 GitHub settings you need:
 - Secret `AZURE_STATIC_WEB_APPS_API_TOKEN`: the SWA deployment token.
 - Variable `VITE_SPOTIFY_CLIENT_ID`: the Spotify Client ID.
-- Variable `VITE_AUTH_REDIRECT_ORIGIN`: the production origin, e.g. `https://gentle-sea-0a1b2c3d4.5.azurestaticapps.net`.
-  This must be the `*.azurestaticapps.net` default host, not a custom domain, because the relay derives the allowed preview hosts from it.
+- Variable `VITE_AUTH_REDIRECT_ORIGIN`: the production origin whose `/callback` is registered with Spotify, either
+  the custom domain (e.g. `https://powerhour.bleemus.dev`) or the `*.azurestaticapps.net` default host.
+- Variable `VITE_SWA_DEFAULT_HOST`: the SWA default hostname, e.g. `gentle-sky-0b9139a10.2.azurestaticapps.net`.
+  PR preview hosts are named after it, so the relay needs it whenever the auth origin is a custom domain.
+
+Redirect URIs to register in the Spotify dashboard:
+- `http://127.0.0.1:5173/callback` for local dev
+- `https://<VITE_AUTH_REDIRECT_ORIGIN host>/callback`. Previews need nothing extra.
 
 ### How PR previews sign in
 
 Each preview has its own hostname, and Spotify doesn't allow wildcard redirect URIs. So every environment uses
 the **production** `/callback` as its redirect URI and puts its own origin in the OAuth `state`. Production's
 `/callback` forwards the code back to that origin. It only does this if the origin is this app's own preview
-host pattern (`<name>-<pr>.<region>.azurestaticapps.net`) or the local dev server. The preview then finishes
+host pattern (`<swa-name>-<pr>.<region>[.<n>].azurestaticapps.net`), the SWA default host, or the local dev server. The preview then finishes
 the PKCE exchange with the verifier it kept. You only register one production redirect URI in Spotify.
 See `src/auth/relay.ts`.

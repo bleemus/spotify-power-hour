@@ -1,4 +1,4 @@
-import { AUTH_ORIGIN, CLIENT_ID, DEV_ORIGIN, REDIRECT_URI, SCOPES } from '../config';
+import { AUTH_ORIGIN, CLIENT_ID, DEV_ORIGIN, REDIRECT_URI, SCOPES, SWA_HOST } from '../config';
 import { decodeState, encodeState, isAllowedReturnOrigin } from './relay';
 import { exchangeCode } from './tokens';
 
@@ -46,7 +46,7 @@ export async function handleCallback(): Promise<CallbackResult> {
   if (!state) throw new Error(error ? `Spotify sign-in failed: ${error}` : 'Missing or invalid sign-in state');
 
   if (state.o !== window.location.origin) {
-    if (!isAllowedReturnOrigin(state.o, AUTH_ORIGIN, DEV_ORIGIN)) {
+    if (!isAllowedReturnOrigin(state.o, { authOrigin: AUTH_ORIGIN, devOrigin: DEV_ORIGIN, swaHost: SWA_HOST })) {
       throw new Error(`Refusing to forward sign-in to ${state.o}`);
     }
     window.location.replace(`${state.o}/callback${window.location.search}`);

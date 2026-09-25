@@ -38,6 +38,8 @@ jobs:
           VITE_SPOTIFY_CLIENT_ID: ${{ vars.VITE_SPOTIFY_CLIENT_ID }}
           # Production origin whose /callback is registered with Spotify; previews sign in through it.
           VITE_AUTH_REDIRECT_ORIGIN: ${{ vars.VITE_AUTH_REDIRECT_ORIGIN }}
+          # SWA default hostname; preview hosts are derived from it when the auth origin is a custom domain.
+          VITE_SWA_DEFAULT_HOST: ${{ vars.VITE_SWA_DEFAULT_HOST }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -64,8 +66,6 @@ jobs:
           app_location: dist
           output_location: ''
           skip_app_build: true
-          skip_api_build: true
-          production_branch: main
 
   close_preview:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'
