@@ -10,6 +10,7 @@ import { loadSettings, saveSettings, validateSettings, type Settings } from './e
 import { unlockAudio } from './engine/sounds';
 import { useSession } from './engine/useSession';
 import * as api from './spotify/api';
+import { IS_MOBILE } from './spotify/platform';
 import { useWebPlayer } from './spotify/useWebPlayer';
 
 // StrictMode runs effects twice in dev; the code exchange must only happen once.
@@ -48,14 +49,14 @@ export function App() {
 }
 
 function Main({ onSignOut }: { onSignOut(): void }) {
-  const web = useWebPlayer(true);
+  const web = useWebPlayer(!IS_MOBILE);
   const session = useSession(web);
 
   const [me, setMe] = useState<api.Me | null>(null);
   const [playlists, setPlaylists] = useState<api.Playlist[] | null>(null);
   const [likedCount, setLikedCount] = useState<number | null>(null);
   const [source, setSource] = useState<string | null>(() => localStorage.getItem('ph.source'));
-  const [device, setDevice] = useState<string>(BROWSER_DEVICE);
+  const [device, setDevice] = useState<string>(IS_MOBILE ? '' : BROWSER_DEVICE);
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,7 +89,7 @@ function Main({ onSignOut }: { onSignOut(): void }) {
   };
 
   const errors = useMemo(() => validateSettings(settings), [settings]);
-  const deviceId = device === BROWSER_DEVICE ? web.deviceId : device;
+  const deviceId = device === BROWSER_DEVICE ? web.deviceId : device || null;
   const busy = session.active || loadingTracks;
   const showNow = session.view.status !== 'idle';
 
@@ -116,7 +117,9 @@ function Main({ onSignOut }: { onSignOut(): void }) {
     : !deviceId
       ? device === BROWSER_DEVICE
         ? 'Waiting for the browser player…'
-        : 'Pick a device'
+        : IS_MOBILE
+          ? 'Open the Spotify app on this phone, then come back'
+          : 'Pick a device'
       : errors.length
         ? 'Fix the rules above'
         : null;
@@ -161,6 +164,7 @@ function Main({ onSignOut }: { onSignOut(): void }) {
             <DevicePicker
               value={device}
               disabled={busy}
+              showBrowser={!IS_MOBILE}
               browserReady={!!web.deviceId}
               browserError={web.error}
               browserDeviceId={web.deviceId}

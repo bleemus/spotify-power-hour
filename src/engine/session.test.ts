@@ -197,4 +197,30 @@ describe('SessionController', () => {
     h.session.externalPlayState('spotify:track:t1', false);
     expect(h.session.state.status).toBe('playing');
   });
+
+  it('stops instead of jumping ahead when timers were frozen in the background', async () => {
+    const h = harness();
+    h.session.start([track(1), track(2)], settings(), target);
+    await flush();
+    await h.advance(2_000);
+
+    await h.advance(60_000); // page suspended: the next tick arrives long after the deadline
+    expect(h.session.state).toMatchObject({ status: 'paused', round: 1, remainingMs: 0 });
+    expect(h.session.state.message).toMatch(/background/);
+    expect(h.deps.pausePlayback).toHaveBeenCalledWith('dev1');
+    expect(h.deps.playTrack).toHaveBeenCalledTimes(1);
+
+    h.session.resume();
+    await flush();
+    expect(h.deps.playTrack).toHaveBeenLastCalledWith('spotify:track:t2', 30_000, 'dev1');
+    expect(h.session.state).toMatchObject({ status: 'playing', round: 2 });
+  });
+
+  it('treats a tick just past the deadline as a normal expiry', async () => {
+    const h = harness();
+    h.session.start([track(1), track(2)], settings(), target);
+    await flush();
+    await h.advance(11_000); // 1s late: within the grace period
+    expect(h.session.state).toMatchObject({ status: 'playing', round: 2 });
+  });
 });

@@ -47,6 +47,12 @@ export const IDLE_VIEW: SessionView = {
 
 /** Give up after this many tracks in a row fail to start. */
 const MAX_CONSECUTIVE_FAILURES = 3;
+/**
+ * A tick arriving this long after the deadline means timers were frozen: phones suspend
+ * background pages. The song kept playing meanwhile, so stop and let the user resume
+ * instead of silently jumping ahead.
+ */
+const OVERRUN_MS = 3000;
 /** Ignore player events this soon after our own play/pause calls; they are echoes. */
 const ECHO_WINDOW_MS = 1500;
 
@@ -100,6 +106,10 @@ export class SessionController {
 
   resume(): void {
     if (this.view.status !== 'paused' || !this.target) return;
+    if (this.remaining <= 0) {
+      void this.expire(this.run);
+      return;
+    }
     this.control(() => this.deps.resumePlayback(this.target!.deviceId));
     this.countdown(this.run, this.remaining);
   }
@@ -212,7 +222,19 @@ export class SessionController {
     this.set({ status: 'playing', remainingMs: ms, message: null });
     this.stopTicker = this.deps.ticker(100, () => {
       if (!this.alive(run)) return;
-      const left = Math.max(0, this.deadline - this.deps.now());
+      const now = this.deps.now();
+      if (now - this.deadline > OVERRUN_MS) {
+        this.clearTicker();
+        this.remaining = 0;
+        this.set({
+          status: 'paused',
+          remainingMs: 0,
+          message: 'The timer stopped while this page was in the background. Tap Resume for the next song.',
+        });
+        this.control(() => this.deps.pausePlayback(this.target!.deviceId));
+        return;
+      }
+      const left = Math.max(0, this.deadline - now);
       this.set({ remainingMs: left });
       if (left === 0) {
         this.clearTicker();
