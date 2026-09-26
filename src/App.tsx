@@ -57,6 +57,7 @@ function Main({ onSignOut }: { onSignOut(): void }) {
   const [likedCount, setLikedCount] = useState<number | null>(null);
   const [source, setSource] = useState<string | null>(() => localStorage.getItem('ph.source'));
   const [device, setDevice] = useState<string>(IS_MOBILE ? '' : BROWSER_DEVICE);
+  const [deviceName, setDeviceName] = useState(IS_MOBILE ? '' : 'this browser');
   const [settings, setSettings] = useState<Settings>(loadSettings);
   const [loadingTracks, setLoadingTracks] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,7 +105,7 @@ function Main({ onSignOut }: { onSignOut(): void }) {
     try {
       const tracks = source === LIKED_SONGS ? await api.getLikedTracks() : await api.getPlaylistTracks(source);
       if (!tracks.length) throw new Error('That playlist has no playable songs.');
-      session.start(tracks, settings, { deviceId, isBrowser: device === BROWSER_DEVICE });
+      session.start(tracks, settings, { deviceId, isBrowser: device === BROWSER_DEVICE, name: deviceName || undefined });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -145,6 +146,7 @@ function Main({ onSignOut }: { onSignOut(): void }) {
           onResume={session.resume}
           onSkip={session.skip}
           onStop={session.stop}
+          onRetry={session.retry}
           onReset={session.stop}
         />
       ) : (
@@ -168,7 +170,10 @@ function Main({ onSignOut }: { onSignOut(): void }) {
               browserReady={!!web.deviceId}
               browserError={web.error}
               browserDeviceId={web.deviceId}
-              onChange={setDevice}
+              onChange={(id, name) => {
+                setDevice(id);
+                setDeviceName(name);
+              }}
             />
             <div className="go">
               <button type="button" className="primary big" disabled={!!startHint || busy} onClick={() => void start()}>

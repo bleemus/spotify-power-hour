@@ -6,7 +6,7 @@ import { playCue } from './sounds';
 import { createTicker } from './ticker';
 
 const CONFIRM_TIMEOUT_MS = 5000;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 function matches(state: Spotify.PlaybackState | null, uri: string): boolean {
   const t = state?.track_window.current_track;
@@ -26,6 +26,8 @@ export function useSession(web: WebPlayer) {
         pausePlayback: api.pausePlayback,
         resumePlayback: api.resumePlayback,
         playCue,
+        wakeDevice: (target) => api.transferPlayback(target.deviceId),
+        sleep,
         ticker: createTicker,
         now: () => performance.now(),
         rng: Math.random,
@@ -109,6 +111,7 @@ export function useSession(web: WebPlayer) {
     pause: () => controller.pause(),
     resume: () => controller.resume(),
     skip: () => controller.skip(),
+    retry: () => controller.retry(),
     stop: () => controller.stop(),
   };
 }

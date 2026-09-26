@@ -19,6 +19,8 @@ export interface SessionView {
 export interface Target {
   deviceId: string;
   isBrowser: boolean;
+  /** Shown in error messages, e.g. "iPhone". */
+  name?: string;
 }
 
 export interface SessionDeps {
@@ -28,6 +30,9 @@ export interface SessionDeps {
   /** Resolves once the track is audibly playing (or after a timeout). */
   confirmPlaying(uri: string, target: Target): Promise<void>;
   playCue(sound: SoundSettings): Promise<void>;
+  /** Best-effort nudge for a device that didn't answer (e.g. transfer playback to it). */
+  wakeDevice(target: Target): Promise<void>;
+  sleep(ms: number): Promise<void>;
   ticker: TickerFactory;
   now(): number;
   rng: Rng;
@@ -45,8 +50,11 @@ export const IDLE_VIEW: SessionView = {
   message: null,
 };
 
-/** Give up after this many tracks in a row fail to start. */
+/** Give up after this many tracks in a row are refused as unplayable. */
 const MAX_CONSECUTIVE_FAILURES = 3;
+/** Attempts per track when the device itself doesn't answer, with a wake-up and backoff between. */
+const DEVICE_ATTEMPTS = 4;
+const DEVICE_BACKOFF_MS = 1500;
 /**
  * A tick arriving this long after the deadline means timers were frozen: phones suspend
  * background pages. The song kept playing meanwhile, so stop and let the user resume
@@ -55,6 +63,24 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const OVERRUN_MS = 3000;
 /** Ignore player events this soon after our own play/pause calls; they are echoes. */
 const ECHO_WINDOW_MS = 1500;
+
+/**
+ * Failures that mean the playback device didn't respond, rather than the track being
+ * unplayable: network errors, 5xx (Spotify couldn't reach the device, often a phone app
+ * asleep in the background), 404 device/player not found, and no-active-device reasons.
+ */
+export function isDeviceProblem(e: unknown): boolean {
+  if (!(e instanceof SpotifyError)) return true;
+  return e.status >= 500 || e.status === 404 || e.status === 408 || e.reason === 'NO_ACTIVE_DEVICE';
+}
+
+export function describeError(e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  if (!(e instanceof SpotifyError)) return message;
+  return `${message} (HTTP ${e.status}${e.reason ? `, ${e.reason}` : ''})`;
+}
+
+type StartResult = { ok: true } | { ok: false; error: unknown } | null;
 
 /**
  * Drives a power-hour run: for each track, start playback at the chosen offset,
@@ -73,6 +99,8 @@ export class SessionController {
   private stopTicker: StopTicker | null = null;
   private failures = 0;
   private lastControlAt = -Infinity;
+  /** Index of the track that stopped the session, so retry() can play it again. */
+  private retryIndex: number | null = null;
 
   constructor(private deps: SessionDeps) {}
 
@@ -117,6 +145,16 @@ export class SessionController {
   skip(): void {
     if (!this.active) return;
     this.clearTicker();
+    void this.next(++this.run);
+  }
+
+  /** After an error, try the track that failed again. */
+  retry(): void {
+    if (this.view.status !== 'error' || this.retryIndex === null) return;
+    this.index = this.retryIndex;
+    this.retryIndex = null;
+    this.failures = 0;
+    this.set({ round: Math.max(0, this.view.round - 1), message: null });
     void this.next(++this.run);
   }
 
@@ -193,19 +231,23 @@ export class SessionController {
       message: null,
     });
 
-    try {
-      this.lastControlAt = this.deps.now();
-      await this.deps.playTrack(track.uri, segment.startMs, target.deviceId);
-    } catch (e) {
-      if (!this.alive(run)) return;
-      const message = e instanceof Error ? e.message : String(e);
-      const skippable = e instanceof SpotifyError && e.status >= 400 && e.status < 500 && e.status !== 401;
-      if (skippable && ++this.failures < MAX_CONSECUTIVE_FAILURES) {
+    const result = await this.startTrack(run, track.uri, segment.startMs, target);
+    if (!result) return; // cancelled
+    if (!result.ok) {
+      const { error } = result;
+      console.warn('Power Hour: could not start track', track.uri, error);
+      if (isDeviceProblem(error)) {
+        return this.fail(
+          `Spotify couldn't reach ${target.name ? `“${target.name}”` : 'your device'}: ${describeError(error)}. ` +
+            'Open the Spotify app on it, play and pause any song, then tap Try again.',
+        );
+      }
+      const fatal = error instanceof SpotifyError && (error.status === 401 || error.reason === 'PREMIUM_REQUIRED');
+      if (!fatal && ++this.failures < MAX_CONSECUTIVE_FAILURES) {
         this.set({ round: this.view.round - 1, skipped: this.view.skipped + 1 });
         return this.next(run);
       }
-      this.set({ status: 'error', message: `Couldn't start “${track.name}”: ${message}` });
-      return;
+      return this.fail(`Couldn't start “${track.name}”: ${describeError(error)}`);
     }
     if (!this.alive(run)) return;
     this.failures = 0;
@@ -214,6 +256,29 @@ export class SessionController {
     if (!this.alive(run)) return;
     this.lastControlAt = this.deps.now();
     this.countdown(run, segment.playMs);
+  }
+
+  /** Start a track, retrying with a wake-up nudge while the device doesn't answer. Null if cancelled. */
+  private async startTrack(run: number, uri: string, positionMs: number, target: Target): Promise<StartResult> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        this.lastControlAt = this.deps.now();
+        await this.deps.playTrack(uri, positionMs, target.deviceId);
+        return this.alive(run) ? { ok: true } : null;
+      } catch (error) {
+        if (!this.alive(run)) return null;
+        if (!isDeviceProblem(error) || attempt >= DEVICE_ATTEMPTS) return { ok: false, error };
+        this.set({ message: `Waiting for ${target.name ?? 'the device'} to respond… (try ${attempt + 1} of ${DEVICE_ATTEMPTS})` });
+        await this.deps.wakeDevice(target).catch(() => {});
+        await this.deps.sleep(DEVICE_BACKOFF_MS * attempt);
+        if (!this.alive(run)) return null;
+      }
+    }
+  }
+
+  private fail(message: string): void {
+    this.retryIndex = this.index - 1;
+    this.set({ status: 'error', message });
   }
 
   private countdown(run: number, ms: number): void {

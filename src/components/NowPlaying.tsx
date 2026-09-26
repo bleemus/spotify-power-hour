@@ -7,6 +7,7 @@ interface Props {
   onSkip(): void;
   onStop(): void;
   onReset(): void;
+  onRetry(): void;
 }
 
 const fmt = (ms: number) => {
@@ -24,7 +25,7 @@ const STATUS_TEXT: Record<SessionView['status'], string> = {
   error: 'Stopped',
 };
 
-export function NowPlaying({ view, onPause, onResume, onSkip, onStop, onReset }: Props) {
+export function NowPlaying({ view, onPause, onResume, onSkip, onStop, onReset, onRetry }: Props) {
   const { track, segment } = view;
   const progress = segment && segment.playMs > 0 ? 1 - view.remainingMs / segment.playMs : 0;
   const finished = view.status === 'done' || view.status === 'error';
@@ -67,9 +68,16 @@ export function NowPlaying({ view, onPause, onResume, onSkip, onStop, onReset }:
 
       <div className="controls">
         {finished ? (
-          <button type="button" className="primary" onClick={onReset}>
-            Back to setup
-          </button>
+          <>
+            {view.status === 'error' && (
+              <button type="button" className="primary" onClick={onRetry}>
+                Try again
+              </button>
+            )}
+            <button type="button" className={view.status === 'error' ? 'ghost' : 'primary'} onClick={onReset}>
+              Back to setup
+            </button>
+          </>
         ) : (
           <>
             {view.status === 'paused' ? (
