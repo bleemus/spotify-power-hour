@@ -33,6 +33,8 @@ function harness(overrides: Partial<SessionDeps> = {}) {
     resumePlayback: vi.fn(async () => {}),
     confirmPlaying: vi.fn(async () => {}),
     playCue: vi.fn(async () => {}),
+    wakeDevice: vi.fn(async () => {}),
+    sleep: vi.fn(async () => {}),
     ticker: (_ms, onTick) => {
       tick = onTick;
       return () => {
@@ -222,5 +224,82 @@ describe('SessionController', () => {
     await flush();
     await h.advance(11_000); // 1s late: within the grace period
     expect(h.session.state).toMatchObject({ status: 'playing', round: 2 });
+  });
+
+  it('retries a device that does not answer, waking it between attempts', async () => {
+    let calls = 0;
+    const playTrack = vi.fn(async () => {
+      if (++calls < 3) throw new SpotifyError(502, 'Bad gateway');
+    });
+    const h = harness({ playTrack });
+    h.session.start([track(1), track(2)], settings(), { ...target, name: 'iPhone' });
+    await flush();
+
+    expect(playTrack).toHaveBeenCalledTimes(3);
+    expect(h.deps.wakeDevice).toHaveBeenCalledTimes(2);
+    expect(h.deps.sleep).toHaveBeenCalledTimes(2);
+    expect(h.session.state).toMatchObject({ status: 'playing', round: 1, skipped: 0, message: null });
+    expect(h.session.state.track?.id).toBe('t1');
+    expect(h.views.some((v) => v.message?.includes('iPhone'))).toBe(true);
+  });
+
+  it('stops with a device message (not skipping songs) when the device never answers, and Try again replays it', async () => {
+    let down = true;
+    const playTrack = vi.fn(async () => {
+      if (down) throw new SpotifyError(404, 'Device not found');
+    });
+    const h = harness({ playTrack });
+    h.session.start([track(1), track(2)], settings(), { ...target, name: 'iPhone' });
+    await flush();
+
+    expect(playTrack).toHaveBeenCalledTimes(4);
+    expect(h.session.state).toMatchObject({ status: 'error', skipped: 0 });
+    expect(h.session.state.message).toMatch(/couldn't reach “iPhone”.*HTTP 404/);
+
+    down = false;
+    h.session.retry();
+    await flush();
+    expect(playTrack).toHaveBeenLastCalledWith('spotify:track:t1', 30_000, 'dev1');
+    expect(h.session.state).toMatchObject({ status: 'playing', round: 1 });
+  });
+
+  it('treats network errors as device problems', async () => {
+    let calls = 0;
+    const playTrack = vi.fn(async () => {
+      if (++calls === 1) throw new TypeError('Failed to fetch');
+    });
+    const h = harness({ playTrack });
+    h.session.start([track(1)], settings(), target);
+    await flush();
+    expect(h.session.state).toMatchObject({ status: 'playing', skipped: 0 });
+  });
+
+  it('stops right away when Premium is required', async () => {
+    const playTrack = vi.fn(async () => {
+      throw new SpotifyError(403, 'Premium required', 'PREMIUM_REQUIRED');
+    });
+    const h = harness({ playTrack });
+    h.session.start([track(1), track(2)], settings(), target);
+    await flush();
+    expect(playTrack).toHaveBeenCalledTimes(1);
+    expect(h.session.state.status).toBe('error');
+    expect(h.session.state.message).toMatch(/PREMIUM_REQUIRED/);
+  });
+
+  it('stop cancels a device retry in progress', async () => {
+    let releaseSleep!: () => void;
+    const h = harness({
+      playTrack: vi.fn(async () => {
+        throw new SpotifyError(502, 'Bad gateway');
+      }),
+      sleep: vi.fn(() => new Promise<void>((r) => (releaseSleep = r))),
+    });
+    h.session.start([track(1)], settings(), target);
+    await flush();
+    h.session.stop();
+    releaseSleep();
+    await flush();
+    expect(h.deps.playTrack).toHaveBeenCalledTimes(1);
+    expect(h.session.state.status).toBe('idle');
   });
 });

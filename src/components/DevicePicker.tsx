@@ -11,7 +11,7 @@ interface Props {
   browserReady: boolean;
   browserError: string | null;
   browserDeviceId: string | null;
-  onChange(deviceId: string): void;
+  onChange(deviceId: string, name: string): void;
 }
 
 export function DevicePicker({
@@ -42,9 +42,9 @@ export function DevicePicker({
       const valid = cur.value === BROWSER_DEVICE ? browserUsable : found.some((d) => d.id === cur.value);
       if (!valid && !cur.disabled) {
         const pick = found.find((d) => d.is_active) ?? found[0];
-        if (pick?.id) cur.onChange(pick.id);
-        else if (browserUsable) cur.onChange(BROWSER_DEVICE);
-        else cur.onChange('');
+        if (pick?.id) cur.onChange(pick.id, pick.name);
+        else if (browserUsable) cur.onChange(BROWSER_DEVICE, 'this browser');
+        else cur.onChange('', '');
       }
     } catch (e) {
       setError((e as Error).message);
@@ -84,7 +84,7 @@ export function DevicePicker({
               name="device"
               checked={value === BROWSER_DEVICE}
               disabled={disabled}
-              onChange={() => onChange(BROWSER_DEVICE)}
+              onChange={() => onChange(BROWSER_DEVICE, 'this browser')}
             />
             <span className="device-name">This browser</span>
             <span className="device-meta">{browserError ? 'unavailable' : browserReady ? 'ready' : 'connecting…'}</span>
@@ -92,7 +92,7 @@ export function DevicePicker({
         )}
         {devices?.map((d) => (
           <label key={d.id} className={`device ${value === d.id ? 'on' : ''}`}>
-            <input type="radio" name="device" checked={value === d.id} disabled={disabled} onChange={() => onChange(d.id!)} />
+            <input type="radio" name="device" checked={value === d.id} disabled={disabled} onChange={() => onChange(d.id!, d.name)} />
             <span className="device-name">{d.name}</span>
             <span className="device-meta">
               {d.type.toLowerCase()}
